@@ -28,6 +28,7 @@ import numpy as np
 import torch
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as extension
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import is_npu, to_numpy, get_npu_properties
@@ -60,9 +61,9 @@ def _gather_kernel(
                 col_offsets = tl.arange(0, BLOCK_X) + col_offset
                 col_mask = col_offsets < NUM_COLUMNS
                 for i in range(0, SUB_BLOCK_SIZE):
-                    idx = tl.get_element(cur_indices, (i,)) // TOP_K * NUM_COLUMNS
+                    idx = extension.get_element(cur_indices, (i,)) // TOP_K * NUM_COLUMNS
                     val = tl.load(x + idx + col_offsets, col_mask)
-                    tmp_buf = tl.insert_slice(tmp_buf, val[None,:], offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1))
+                    tmp_buf = extension.insert_slice(tmp_buf, val[None,:], offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1))
                 tl.store(out + idx_offsets[:, None] * NUM_COLUMNS + col_offsets[None, :],
                          tmp_buf, idx_mask[:, None] & col_mask[None, :])
 
@@ -131,8 +132,8 @@ def _scatter_kernel(
                             idx_mask[:, None] & col_mask[None, :])
             for i in range(0, SUB_BLOCK_SIZE):
                 if i + idx_offset < idx_end:
-                    idx = tl.get_element(cur_indices, (i,))
-                    val = tl.extract_slice(cur_x, offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1))
+                    idx = extension.get_element(cur_indices, (i,))
+                    val = extension.extract_slice(cur_x, offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1))
                     if SCALE:
                         scale = tl.load(weights + idx)
                         val = val.to(tl.float32) * scale.to(tl.float32)
@@ -203,8 +204,8 @@ def _scatter_wgrad_kernel(
                             idx_mask[:, None] & col_mask[None, :], other=0)
             for i in range(0, SUB_BLOCK_SIZE):
                 if i + idx_offset < idx_end:
-                    idx = tl.get_element(cur_indices, (i,))
-                    data = tl.extract_slice(cur_x, offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1)).to(tl.float32)
+                    idx = extension.get_element(cur_indices, (i,))
+                    data = extension.extract_slice(cur_x, offsets=(i, 0), sizes=(1, BLOCK_X), strides=(1, 1)).to(tl.float32)
                     grad = tl.load(grads + (idx // TOP_K) * NUM_COLUMNS + col_offsets, col_mask, other=0).to(tl.float32)
                     out = tl.sum(data.reshape(BLOCK_X) * grad.reshape(BLOCK_X))
                     tl.store(wgrad+idx, out.to(wgrad.dtype.element_ty))
