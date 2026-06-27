@@ -2,6 +2,7 @@ import time
 import triton
 import torch
 import triton.language as tl
+import triton.language.extra.cann.extension as extension
 
 
 @triton.jit
@@ -110,12 +111,12 @@ def grouped_attention_kernel_stage1(
             for i in range(start_n, min(BLOCK_N + start_n, split_kv_end)):
                 ind = i - start_n
                 offs_buf_k = (
-                    tl.get_element(kv_loc, (ind, ))  * stride_buf_kbs
+                    extension.get_element(kv_loc, (ind, ))  * stride_buf_kbs
                     + cur_kv_head * stride_buf_kh
                     + offs_d[None, :]
                 )
                 k_tmp = tl.load(K_Buffer + offs_buf_k, mask=(mask_d[None, :]), other=0.0)
-                k = tl.insert_slice(k, k_tmp, (ind, 0), (1, BLOCK_DMODEL), (1, 1))
+                k = extension.insert_slice(k, k_tmp, (ind, 0), (1, BLOCK_DMODEL), (1, 1))
             k = tl.trans(k, (1, 0))
 
             qk = tl.dot(q, k.to(q.dtype))
@@ -136,12 +137,12 @@ def grouped_attention_kernel_stage1(
                 for i in range(start_n, min(BLOCK_N + start_n, split_kv_end)):
                     ind = i - start_n
                     offs_buf_kpe = (
-                        tl.get_element(kv_loc, (ind, ))  * stride_buf_kbs
+                        extension.get_element(kv_loc, (ind, ))  * stride_buf_kbs
                         + cur_kv_head * stride_buf_kh
                         + offs_dpe[None, :]
                     )
                     kpe_tmp = tl.load(K_Buffer + offs_buf_kpe, mask=(mask_dpe[None, :]), other=0.0)
-                    kpe = tl.insert_slice(kpe, kpe_tmp, (ind, 0), (1, BLOCK_DPE), (1, 1))
+                    kpe = extension.insert_slice(kpe, kpe_tmp, (ind, 0), (1, BLOCK_DPE), (1, 1))
                 kpe = tl.trans(kpe, (1, 0))
 
                 qk += tl.dot(qpe, kpe.to(qpe.dtype))
